@@ -1,8 +1,8 @@
 // main.js
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = "https://xxxxxxxx.supabase.co"; // ←自分のURL
-const SUPABASE_KEY = "public-anon-key"; // ←自分のKey
+const SUPABASE_URL = "https://mykrvfndwbphffghykdz.supabase.co"; // ←自分のURL
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15a3J2Zm5kd2JwaGZmZ2h5a2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5Njg5NTYsImV4cCI6MjA3NjU0NDk1Nn0.0AYae2z_tlPBxO_A_XfAKVOqDTLtJFuOLfME8lvkgD4"; // ←自分のKey
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const playerNameInput = document.getElementById("playerName");
