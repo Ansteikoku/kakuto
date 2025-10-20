@@ -1,0 +1,37 @@
+<canvas id="game" width="800" height="600"></canvas>
+<script>
+const ctx = game.getContext("2d");
+let keys = {};
+document.addEventListener("keydown", e => keys[e.key] = true);
+document.addEventListener("keyup", e => keys[e.key] = false);
+
+let players = [
+  {x:100,y:500,vx:0,vy:0,color:"red",left:"a",right:"d",jump:"w",onGround:true},
+  {x:600,y:500,vx:0,vy:0,color:"blue",left:"ArrowLeft",right:"ArrowRight",jump:"ArrowUp",onGround:true}
+];
+
+function update(){
+  players.forEach(p=>{
+    if(keys[p.left]) p.x -= 4;
+    if(keys[p.right]) p.x += 4;
+    p.vy += 0.5; // gravity
+    p.y += p.vy;
+    if(p.y>500){ p.y=500; p.vy=0; p.onGround=true; }
+    if(keys[p.jump]&&p.onGround){ p.vy=-10; p.onGround=false; }
+  });
+}
+
+function draw(){
+  ctx.fillStyle="#222";
+  ctx.fillRect(0,0,800,600);
+  players.forEach(p=>{
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x,p.y,40,40);
+  });
+}
+
+(function loop(){
+  update(); draw();
+  requestAnimationFrame(loop);
+})();
+</script>
