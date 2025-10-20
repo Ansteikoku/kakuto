@@ -1,20 +1,24 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>4人制ルームテスト</title>
+  <title>WebRTC × Supabase 4人テスト</title>
 </head>
 <body>
-  <h1>4人制ルームサンプル</h1>
+  <h1>4人接続テスト</h1>
 
-  <input id="playerName" placeholder="名前を入力">
+  <input id="playerName" placeholder="名前">
   <button id="createRoom">ルーム作成</button>
-  <input id="roomId" placeholder="ルームIDを入力">
+  <input id="roomId" placeholder="ルームID">
   <button id="joinRoom">参加</button>
 
   <h3>現在のプレイヤー：</h3>
   <ul id="playerList"></ul>
+
+  <h3>チャットテスト：</h3>
+  <input id="messageInput" placeholder="メッセージ">
+  <button id="sendMessage">送信</button>
+  <div id="chatLog"></div>
 
   <script type="module" src="main.js"></script>
 </body>
