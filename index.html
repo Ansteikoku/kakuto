@@ -1,37 +1,21 @@
-<canvas id="game" width="800" height="600"></canvas>
-<script>
-const ctx = game.getContext("2d");
-let keys = {};
-document.addEventListener("keydown", e => keys[e.key] = true);
-document.addEventListener("keyup", e => keys[e.key] = false);
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>4人制ルームテスト</title>
+</head>
+<body>
+  <h1>4人制ルームサンプル</h1>
 
-let players = [
-  {x:100,y:500,vx:0,vy:0,color:"red",left:"a",right:"d",jump:"w",onGround:true},
-  {x:600,y:500,vx:0,vy:0,color:"blue",left:"ArrowLeft",right:"ArrowRight",jump:"ArrowUp",onGround:true}
-];
+  <input id="playerName" placeholder="名前を入力">
+  <button id="createRoom">ルーム作成</button>
+  <input id="roomId" placeholder="ルームIDを入力">
+  <button id="joinRoom">参加</button>
 
-function update(){
-  players.forEach(p=>{
-    if(keys[p.left]) p.x -= 4;
-    if(keys[p.right]) p.x += 4;
-    p.vy += 0.5; // gravity
-    p.y += p.vy;
-    if(p.y>500){ p.y=500; p.vy=0; p.onGround=true; }
-    if(keys[p.jump]&&p.onGround){ p.vy=-10; p.onGround=false; }
-  });
-}
+  <h3>現在のプレイヤー：</h3>
+  <ul id="playerList"></ul>
 
-function draw(){
-  ctx.fillStyle="#222";
-  ctx.fillRect(0,0,800,600);
-  players.forEach(p=>{
-    ctx.fillStyle=p.color;
-    ctx.fillRect(p.x,p.y,40,40);
-  });
-}
-
-(function loop(){
-  update(); draw();
-  requestAnimationFrame(loop);
-})();
-</script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
