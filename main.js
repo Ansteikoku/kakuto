@@ -1,160 +1,257 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://mykrvfndwbphffghykdz.supabase.co"; // ←自分のURL
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15a3J2Zm5kd2JwaGZmZ2h5a2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5Njg5NTYsImV4cCI6MjA3NjU0NDk1Nn0.0AYae2z_tlPBxO_A_XfAKVOqDTLtJFuOLfME8lvkgD4"; // ←自分のKey
+// ---------------- Supabase 設定 ----------------
+const SUPABASE_URL = "https://mykrvfndwbphffghykdz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15a3J2Zm5kd2JwaGZmZ2h5a2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5Njg5NTYsImV4cCI6MjA3NjU0NDk1Nn0.0AYae2z_tlPBxO_A_XfAKVOqDTLtJFuOLfME8lvkgD4";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const playerNameInput = document.getElementById("playerName");
-const playerList = document.getElementById("playerList");
-const chatLog = document.getElementById("chatLog");
-const sendButton = document.getElementById("sendMessage");
-const messageInput = document.getElementById("messageInput");
+const myId = Math.random().toString(36).slice(2);
+let myCharacter, myName, player, dead=false, hp=100, roomId="room1";
+let otherPlayers = {}, cursors, space, skillKey, attackHitbox;
+let peerConnections = {}; // WebRTC Peers
 
-let playerId = crypto.randomUUID();
-let currentRoomId = null;
-let peers = {}; // playerId -> RTCPeerConnection
-let channels = {}; // playerId -> DataChannel
-
-// ========== Supabaseルーム作成 ==========
-document.getElementById("createRoom").onclick = async () => {
-  const { data, error } = await supabase
-    .from("rooms")
-    .insert({
-      name: `room_${Math.floor(Math.random() * 1000)}`,
-      players: [{ id: playerId, name: playerNameInput.value }],
-    })
-    .select()
-    .single();
-
-  currentRoomId = data.id;
-  subscribeToRoom(data.id);
-  subscribeToSignals(data.id);
-  renderPlayers(data.players);
-  alert(`ルーム作成！ID: ${data.id}`);
+// キャラ性能
+const CHARACTER_STATS = {
+  char1: { name:"ソードマン", speed:200, jump:350, attack:20, skill:"spinSlash" },
+  char2: { name:"アーチャー", speed:250, jump:300, attack:15, skill:"arrowRain" },
+  char3: { name:"メイジ", speed:180, jump:320, attack:25, skill:"fireball" },
 };
 
-// ========== ルーム参加 ==========
-document.getElementById("joinRoom").onclick = async () => {
-  const roomId = document.getElementById("roomId").value.trim();
-  const { data: room } = await supabase.from("rooms").select("*").eq("id", roomId).single();
-
-  if (!room) return alert("ルームが存在しません");
-  if (room.players.length >= 4) return alert("満員です");
-
-  const newPlayers = [...room.players, { id: playerId, name: playerNameInput.value }];
-  await supabase.from("rooms").update({ players: newPlayers }).eq("id", roomId);
-
-  currentRoomId = roomId;
-  subscribeToRoom(roomId);
-  subscribeToSignals(roomId);
-  renderPlayers(newPlayers);
-
-  // 既にいるプレイヤーに接続要求を送る
-  room.players.forEach((p) => createOffer(p.id));
+// ---------------- Phaser 設定 ----------------
+const config = {
+  type: Phaser.AUTO,
+  width: 800,
+  height: 600,
+  backgroundColor: "#66ccff",
+  parent: "game-container",
+  physics: { default:"arcade", arcade:{ gravity:{y:600}, debug:false } },
+  scene: [CharacterSelectScene, GameScene]
 };
+new Phaser.Game(config);
 
-// ========== Supabase: ルーム監視 ==========
-function subscribeToRoom(roomId) {
-  supabase
-    .channel(`room-${roomId}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` },
-      (payload) => renderPlayers(payload.new.players)
-    )
-    .subscribe();
-}
-
-function renderPlayers(players) {
-  playerList.innerHTML = "";
-  players.forEach((p) => {
-    const li = document.createElement("li");
-    li.textContent = p.name;
-    playerList.appendChild(li);
-  });
-}
-
-// ========== Supabase: WebRTCシグナリング ==========
-function subscribeToSignals(roomId) {
-  supabase
-    .channel(`signal-${roomId}`)
-    .on("broadcast", { event: "signal" }, ({ payload }) => handleSignal(payload))
-    .subscribe();
-}
-
-async function sendSignal(data) {
-  await supabase.channel(`signal-${currentRoomId}`).send({
-    type: "broadcast",
-    event: "signal",
-    payload: data,
-  });
-}
-
-// ========== WebRTC部分 ==========
-async function createPeer(targetId) {
-  const peer = new RTCPeerConnection();
-  peers[targetId] = peer;
-
-  const channel = peer.createDataChannel("chat");
-  channels[targetId] = channel;
-
-  channel.onmessage = (e) => addMessage(`💬 ${targetId}: ${e.data}`);
-
-  peer.onicecandidate = (e) => {
-    if (e.candidate) sendSignal({ from: playerId, to: targetId, ice: e.candidate });
-  };
-
-  peer.ondatachannel = (e) => {
-    const ch = e.channel;
-    ch.onmessage = (e) => addMessage(`💬 ${targetId}: ${e.data}`);
-    channels[targetId] = ch;
-  };
-
-  return peer;
-}
-
-async function createOffer(targetId) {
-  const peer = await createPeer(targetId);
-  const offer = await peer.createOffer();
-  await peer.setLocalDescription(offer);
-  sendSignal({ from: playerId, to: targetId, offer });
-}
-
-async function handleSignal({ from, to, offer, answer, ice }) {
-  if (to !== playerId) return;
-
-  let peer = peers[from] || (peers[from] = await createPeer(from));
-
-  if (offer) {
-    await peer.setRemoteDescription(new RTCSessionDescription(offer));
-    const answerDesc = await peer.createAnswer();
-    await peer.setLocalDescription(answerDesc);
-    sendSignal({ from: playerId, to: from, answer: answerDesc });
+// ---------------- キャラ選択シーン ----------------
+class CharacterSelectScene extends Phaser.Scene {
+  constructor(){ super("CharacterSelectScene"); }
+  preload(){
+    this.load.image("bg","assets/select_bg.png");
+    this.load.image("char1","assets/char1.png");
+    this.load.image("char2","assets/char2.png");
+    this.load.image("char3","assets/char3.png");
   }
+  create(){
+    const scene = this;
+    this.add.image(400,300,"bg").setAlpha(0.4);
+    this.add.text(240,50,"キャラを選んでください",{fontSize:"32px",color:"#fff"});
+    const input=this.add.dom(400,120,"input",{type:"text",width:"200px",textAlign:"center"});
+    input.node.placeholder="名前を入力";
 
-  if (answer) {
-    await peer.setRemoteDescription(new RTCSessionDescription(answer));
+    const chars=[
+      {key:"char1", name:"ソードマン"},
+      {key:"char2", name:"アーチャー"},
+      {key:"char3", name:"メイジ"}
+    ];
+    const preview=this.add.image(400,250,"char1").setScale(2);
+
+    chars.forEach((ch,i)=>{
+      const x=250+i*150, y=350;
+      const icon=this.add.image(x,y,ch.key).setInteractive().setScale(2);
+      icon.on("pointerover",()=>preview.setTexture(ch.key));
+      icon.on("pointerout",()=>preview.setTexture(myCharacter||"char1"));
+      icon.on("pointerdown", async ()=>{
+        myCharacter=ch.key; myName=input.node.value||"名無し";
+
+        // 部屋制御: 最大4人
+        const { data } = await supabase.from("players").select("id").eq("room", roomId);
+        if(data.length>=4){ alert("部屋が満員です"); return; }
+
+        // Supabaseに参加登録
+        await supabase.from("players").upsert({
+          id:myId,name:myName,character:myCharacter,x:400,y:200,hp:100,room:roomId
+        });
+
+        // WebRTC接続初期化
+        connectToPeers(data.map(p=>({id:p.id})));
+
+        scene.scene.start("GameScene");
+      });
+      this.add.text(x-40,y+60,ch.name,{fontSize:"18px",color:"#fff"});
+    });
   }
+}
 
-  if (ice) {
-    try {
-      await peer.addIceCandidate(new RTCIceCandidate(ice));
-    } catch (err) {
-      console.error("ICE error:", err);
+// ---------------- ゲームシーン ----------------
+class GameScene extends Phaser.Scene{
+  constructor(){super("GameScene");}
+  preload(){
+    this.load.image("ground","assets/ground.png");
+    this.load.image("char1","assets/char1.png");
+    this.load.image("char2","assets/char2.png");
+    this.load.image("char3","assets/char3.png");
+  }
+  create(){
+    const scene=this;
+
+    // 地面
+    const platforms=scene.physics.add.staticGroup();
+    for(let x=0;x<800;x+=128) platforms.create(x,568,"ground").setOrigin(0,0).refreshBody();
+
+    // 自キャラ
+    player=scene.physics.add.sprite(400,200,myCharacter||"char1").setCollideWorldBounds(true);
+    scene.physics.add.collider(player,platforms);
+    player.nameLabel=scene.add.text(player.x-20,player.y-40,myName,{fontSize:"18px",color:"#fff"});
+
+    // HPバー
+    player.hpBar=scene.add.graphics();
+    updateHpBar(player);
+
+    // 攻撃ヒットボックス
+    attackHitbox=scene.add.rectangle(0,0,50,30,0xffff00,0.3);
+    scene.physics.add.existing(attackHitbox);
+    attackHitbox.active=false; attackHitbox.visible=false;
+
+    // キー
+    cursors=scene.input.keyboard.createCursorKeys();
+    space=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    skillKey=scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
+
+    // Supabase リアルタイム同期
+    supabase.from(`players:room=eq.${roomId}`).on("INSERT",handleJoin).on("UPDATE",handleUpdate).subscribe();
+
+    // フレーム更新
+    scene.events.on("update",()=>{
+      if(player.nameLabel){ player.nameLabel.x=player.x-20; player.nameLabel.y=player.y-40; }
+      updatePlayerMovement(scene);
+      updateHpBar(player);
+      Object.values(otherPlayers).forEach(p=>updateHpBar(p));
+      if(player.y>700 && !dead) handleDeath(scene,"fall");
+    });
+  }
+}
+
+// ---------------- 移動・攻撃・スキル・同期 ----------------
+function updatePlayerMovement(scene){
+  if(!player || dead) return;
+  const stats = CHARACTER_STATS[myCharacter];
+  player.body.setVelocityX(0);
+  if(cursors.left.isDown) player.body.setVelocityX(-stats.speed), player.flipX=true;
+  else if(cursors.right.isDown) player.body.setVelocityX(stats.speed), player.flipX=false;
+  if(cursors.up.isDown && player.body.blocked.down) player.body.setVelocityY(-stats.jump);
+
+  // WebRTC 移動同期
+  sendMove(player.x,player.y);
+
+  if(Phaser.Input.Keyboard.JustDown(space)) doAttack();
+  if(Phaser.Input.Keyboard.JustDown(skillKey)) doSkillAttack();
+}
+
+function doAttack(){
+  const stats=CHARACTER_STATS[myCharacter];
+  attackHitbox.x=player.x+(player.flipX?-30:30); attackHitbox.y=player.y;
+  attackHitbox.visible=true; attackHitbox.active=true;
+
+  Object.values(otherPlayers).forEach(p=>{
+    if(Phaser.Math.Distance.Between(attackHitbox.x,attackHitbox.y,p.sprite.x,p.sprite.y)<40){
+      p.hp=Math.max(0,p.hp-stats.attack);
+      supabase.from("players").upsert({id:p.id,hp:p.hp});
     }
+  });
+  showAttackEffect(attackHitbox.x,attackHitbox.y,player.flipX);
+  sendAttack(attackHitbox.x,attackHitbox.y,player.flipX);
+}
+
+function doSkillAttack(){
+  const skill=CHARACTER_STATS[myCharacter].skill;
+  if(skill==="fireball"){ castFireball(); }
+  else if(skill==="arrowRain"){ castArrowRain(); }
+  else if(skill==="spinSlash"){ castSpinSlash(); }
+  sendSkill(skill,player.x,player.y,player.flipX);
+}
+
+function showAttackEffect(x,y,flip){
+  const fx=game.scene.keys["GameScene"].add.rectangle(x,y,50,10,0xffff00,0.6);
+  fx.setOrigin(flip?1:0,0.5);
+  game.scene.keys["GameScene"].tweens.add({targets:fx,alpha:0,scaleX:1.5,duration:200,onComplete:()=>fx.destroy()});
+}
+
+function updateHpBar(obj){
+  if(!obj.hpBar) return;
+  obj.hpBar.clear();
+  obj.hpBar.fillStyle(0x00ff00,1);
+  obj.hpBar.fillRect(obj.sprite?obj.sprite.x-25:obj.x-25,obj.sprite?obj.sprite.y-40:obj.y-40,obj.hp,5);
+}
+
+function handleDeath(scene,reason="attack"){
+  dead=true; hp=0; player.setTint(0x333333);
+  supabase.from("players").upsert({id:myId,hp:0});
+  const text=scene.add.text(player.x-20,player.y-40,reason==="fall"?"落下死！":"倒された！",{fontSize:"16px",color:"#ff0000"});
+  scene.time.delayedCall(1000,()=>text.destroy());
+  scene.time.delayedCall(3000,()=>respawn(scene));
+}
+
+function respawn(scene){
+  const spawnPoints=[{x:100,y:200},{x:400,y:100},{x:700,y:250}];
+  const pos=Phaser.Utils.Array.GetRandom(spawnPoints);
+  hp=100; dead=false; player.clearTint(); player.x=pos.x; player.y=pos.y;
+  supabase.from("players").upsert({id:myId,x:player.x,y:player.y,hp});
+}
+
+// ---------------- Supabase リアルタイム ----------------
+function handleJoin(payload){
+  const data=payload.new;
+  if(data.id===myId) return;
+  if(!otherPlayers[data.id]){
+    const scene=game.scene.keys["GameScene"];
+    const sprite=scene.physics.add.sprite(data.x,data.y,data.character).setCollideWorldBounds(true);
+    const label=scene.add.text(sprite.x-20,sprite.y-40,data.name,{fontSize:"18px",color:"#fff"});
+    sprite.hp=data.hp;
+    sprite.hpBar=scene.add.graphics();
+    otherPlayers[data.id]={sprite,label,stats:CHARACTER_STATS[data.character],hp:data.hp};
   }
 }
 
-// ========== チャット送受信 ==========
-sendButton.onclick = () => {
-  const msg = messageInput.value;
-  addMessage(`🧍 あなた: ${msg}`);
-  Object.values(channels).forEach((ch) => ch.send(msg));
-  messageInput.value = "";
-};
-
-function addMessage(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  chatLog.appendChild(div);
+function handleUpdate(payload){
+  const data=payload.new;
+  const p=otherPlayers[data.id];
+  if(!p || data.id===myId) return;
+  if(data.x!==undefined) p.sprite.x=data.x;
+  if(data.y!==undefined) p.sprite.y=data.y;
+  if(data.hp!==undefined) p.hp=data.hp;
 }
+
+// ---------------- WebRTC P2P ----------------
+async function connectToPeers(players){
+  players.forEach(async p=>{
+    if(p.id===myId || peerConnections[p.id]) return;
+    const pc = new RTCPeerConnection();
+    const dc = pc.createDataChannel("game");
+    dc.onmessage = e=>handleRTCMessage(JSON.parse(e.data));
+    peerConnections[p.id]={pc, dc};
+
+    pc.onicecandidate = e=>{ if(e.candidate) sendCandidate(p.id,e.candidate); };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendOffer(p.id, offer);
+  });
+}
+
+function sendMove(x,y){ broadcast({type:"move",id:myId,x,y}); }
+function sendAttack(x,y,flip){ broadcast({type:"attack",id:myId,x,y,flip}); }
+function sendSkill(skill,x,y,flip){ broadcast({type:"skill",id:myId,skill,x,y,flip}); }
+function broadcast(msg){
+  Object.values(peerConnections).forEach(p=>{
+    if(p.dc && p.dc.readyState==="open") p.dc.send(JSON.stringify(msg));
+  });
+}
+
+function handleRTCMessage(data){
+  const p = otherPlayers[data.id];
+  if(!p) return;
+  if(data.type==="move"){ p.sprite.x=data.x; p.sprite.y=data.y; }
+  else if(data.type==="attack"){ showAttackEffect(data.x,data.y,false); }
+  else if(data.type==="skill"){ /* スキルエフェクト同期 */ }
+}
+
+// ---------------- Supabase シグナル交換 ----------------
+// rtc_signals テーブル使用
+// 省略: sendOffer, sendAnswer, sendCandidate, 受信リアルタイム処理は先ほどの例を利用
