@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 
 // ---------------- Supabase ----------------
-const SUPABASE_URL = "https://YOUR_SUPABASE_URL";
-const SUPABASE_KEY = "YOUR_PUBLIC_ANON_KEY";
+const SUPABASE_URL = "https://mykrvfndwbphffghykdz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im15a3J2Zm5kd2JwaGZmZ2h5a2R6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA5Njg5NTYsImV4cCI6MjA3NjU0NDk1Nn0.0AYae2z_tlPBxO_A_XfAKVOqDTLtJFuOLfME8lvkgD4";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const myId = Math.random().toString(36).slice(2);
